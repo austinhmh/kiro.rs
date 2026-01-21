@@ -55,25 +55,32 @@ impl KiroProvider {
         &self.token_manager
     }
 
+    /// 获取有效的 region（凭据级优先）
+    ///
+    /// 优先级：credentials.region > config.region
+    fn get_effective_region(&self, credentials: &crate::kiro::model::credentials::KiroCredentials) -> String {
+        credentials.region.as_ref().unwrap_or(&self.token_manager.config().region).clone()
+    }
+
     /// 获取 API 基础 URL
-    pub fn base_url(&self) -> String {
+    pub fn base_url(&self, region: &str) -> String {
         format!(
             "https://q.{}.amazonaws.com/generateAssistantResponse",
-            self.token_manager.config().region
+            region
         )
     }
 
     /// 获取 MCP API URL
-    pub fn mcp_url(&self) -> String {
+    pub fn mcp_url(&self, region: &str) -> String {
         format!(
             "https://q.{}.amazonaws.com/mcp",
-            self.token_manager.config().region
+            region
         )
     }
 
     /// 获取 API 基础域名
-    pub fn base_domain(&self) -> String {
-        format!("q.{}.amazonaws.com", self.token_manager.config().region)
+    pub fn base_domain(&self, region: &str) -> String {
+        format!("q.{}.amazonaws.com", region)
     }
 
     /// 构建请求头
@@ -97,6 +104,9 @@ impl KiroProvider {
             os_name, node_version, kiro_version, machine_id
         );
 
+        let region = self.get_effective_region(&ctx.credentials);
+        let domain = self.base_domain(&region);
+
         let mut headers = HeaderMap::new();
 
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -113,7 +123,7 @@ impl KiroProvider {
             reqwest::header::USER_AGENT,
             HeaderValue::from_str(&user_agent).unwrap(),
         );
-        headers.insert(HOST, HeaderValue::from_str(&self.base_domain()).unwrap());
+        headers.insert(HOST, HeaderValue::from_str(&domain).unwrap());
         headers.insert(
             "amz-sdk-invocation-id",
             HeaderValue::from_str(&Uuid::new_v4().to_string()).unwrap(),
@@ -149,6 +159,9 @@ impl KiroProvider {
             os_name, node_version, kiro_version, machine_id
         );
 
+        let region = self.get_effective_region(&ctx.credentials);
+        let domain = self.base_domain(&region);
+
         let mut headers = HeaderMap::new();
 
         // 按照严格顺序添加请求头
@@ -158,7 +171,7 @@ impl KiroProvider {
             HeaderValue::from_str(&x_amz_user_agent).unwrap(),
         );
         headers.insert("user-agent", HeaderValue::from_str(&user_agent).unwrap());
-        headers.insert("host", HeaderValue::from_str(&self.base_domain()).unwrap());
+        headers.insert("host", HeaderValue::from_str(&domain).unwrap());
         headers.insert(
             "amz-sdk-invocation-id",
             HeaderValue::from_str(&Uuid::new_v4().to_string()).unwrap(),
@@ -239,7 +252,8 @@ impl KiroProvider {
                 }
             };
 
-            let url = self.mcp_url();
+            let region = self.get_effective_region(&ctx.credentials);
+            let url = self.mcp_url(&region);
             let headers = match self.build_mcp_headers(&ctx) {
                 Ok(h) => h,
                 Err(e) => {
@@ -368,7 +382,8 @@ impl KiroProvider {
                 }
             };
 
-            let url = self.base_url();
+            let region = self.get_effective_region(&ctx.credentials);
+            let url = self.base_url(&region);
             let headers = match self.build_headers(&ctx) {
                 Ok(h) => h,
                 Err(e) => {
@@ -585,8 +600,9 @@ mod tests {
         let config = Config::default();
         let credentials = KiroCredentials::default();
         let provider = create_test_provider(config, credentials);
-        assert!(provider.base_url().contains("amazonaws.com"));
-        assert!(provider.base_url().contains("generateAssistantResponse"));
+        let region = "us-east-1";
+        assert!(provider.base_url(region).contains("amazonaws.com"));
+        assert!(provider.base_url(region).contains("generateAssistantResponse"));
     }
 
     #[test]
@@ -595,7 +611,8 @@ mod tests {
         config.region = "us-east-1".to_string();
         let credentials = KiroCredentials::default();
         let provider = create_test_provider(config, credentials);
-        assert_eq!(provider.base_domain(), "q.us-east-1.amazonaws.com");
+        let region = "us-east-1";
+        assert_eq!(provider.base_domain(region), "q.us-east-1.amazonaws.com");
     }
 
     #[test]
